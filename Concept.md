@@ -7,6 +7,7 @@
 - 公式: 对于一个条件C，其selectivity是满足C的元组数 / 总元组数。
 - 示例: 如果一个表有1000个元组，并且其中100个元组满足某个条件C，那么C的selectivity是0.1。
 - 意义: 高selectivity意味着条件过滤掉了大量的数据，而低selectivity意味着条件几乎不过滤数据。这对于查询优化器来说很重要，因为它可以基于selectivity来决定执行计划。
+- 衡量标准：Selectivity越高越好。
 
 # Density
 
