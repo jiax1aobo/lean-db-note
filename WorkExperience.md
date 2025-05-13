@@ -54,6 +54,24 @@
 - 性能要求：
 - 项目难点：工作量大
 
+```sql
+ITEM  REGION PRICE AMOUNT
+----- ------ ----- ------
+apple daegu  25000     30
+
+SELECT *
+  FROM sales PIVOT (
+  	SUM(price * amount) FOR item IN ('apple' APPLE)
+  );
+-- <==>
+SELECT region
+     , SUM(price * amount) FILTER( WHERE item = 'apple' ) AS apple
+  FROM sales
+ GROUP BY region;
+```
+
+
+
 ---
 
 # OCI API 封装
