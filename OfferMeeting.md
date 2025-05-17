@@ -148,6 +148,33 @@ void rpc_server_worker(void* arg) {
 
 ## PingCap (TiDB)
 
+反问
+
+- 请问，TiDB研发部门目前有哪些新的技术研发的方向？
+- 请问，对新入职的人的要求是怎样的？3个月内需要承担什么样的研发工作？6月内需要承担什么样的研发工作？
+
+算法：
+
+- 给你一个整数数组`nums`，请你使用$O(n)$的时间复杂度和$O(1)$的空间复杂度来找出数组中的众数，给出的测试用例保证众数的整数在数组中出现的次数大于$n/2$。
+
+```c++
+int findMaj(std::vector<int> &nums) {
+    int maj, cnt = 0, n = nums.size();
+    for(int i = 0; i < n; i++) {
+        if(cnt == 0) {
+            maj = nums[i];
+        } else {
+            if(maj == nums[i])
+                cnt++;
+            else
+                cnt--;
+        }
+    }
+    return maj;
+}
+```
+
+
 反问：
 
 - 部门目前的有哪些技术攻关的方向？
