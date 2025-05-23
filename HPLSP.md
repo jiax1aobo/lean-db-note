@@ -301,3 +301,38 @@ IPv6协议不是IPv4协议的简单扩展，而是完全独立的协议。用以
 length字段指定选项的长度（包含1字节的kind和1字节的length）。
 
 ### 3.2.3 使用tcpdump观察TCP头部信息
+
+## 3.3 TCP连接的建立和关闭
+
+### 3.3.1 使用tcpdump观察TCP连接的建立和关闭
+
+<img src="D:\X1AOBO\Documents\github\lean-db-note\assets\image-20250523165726345.png" alt="image-20250523165726345" style="zoom:67%;" />
+
+### 3.3.2 半关闭状态
+
+<img src="D:\X1AOBO\Documents\github\lean-db-note\assets\image-20250523165901048.png" alt="image-20250523165901048" style="zoom:67%;" />
+
+### 3.3.3 连接超时
+
+超时重连次数由`/proc/sys/net/ipv4/tcp_syn_retries`内核变量决定。
+
+## 3.4 TCP状态转移
+
+TCP连接的任意一端再任一时刻都处于某种状态，当前状态可以通过`netstat`命令查看。
+
+<img src="D:\X1AOBO\Documents\github\lean-db-note\assets\image-20250523161640412.png" alt="image-20250523161640412" style="zoom:67%;" />
+
+上图是完整的状态转移图，它描绘了所有的TCP状态以及可能的状态转移。**粗虚线表示典型的服务器端连接的状态转移；粗实线表示典型的客户端连接的状态。CLOSED是一个假想的起始点，并不是一个实际的状态。**（我思考这里的“典型”是指服务器端提前进入监听，然后客户端主动连接服务器端，最后客户端执行完任务主动断开与服务器端的连接的场景。）
+
+### 3.4.1 TCP状态转移总图
+
+<img src="D:\X1AOBO\Documents\github\lean-db-note\assets\image-20250523172249665.png" alt="image-20250523172249665" style="zoom:67%;" />
+
+### 3.4.2 TIME_WAIT状态
+
+客户端在首都奥服务器的结束报文段后，并未直接进入CLOSED状态，而是转移到TIME_WAIT状态。在此状态下，客户端要等待一段长为2MSL（Maximum Segment Life，报文最大生存时间）的时间，才能完全关闭。MSL再标准文档RFC 1122的建议值位2 min。
+
+TIME_WAIT状态存在的原因有两点：
+
+- **可靠地终止TCP连接。**假设图3-9的报文段7丢失，即服务器端发送的报文段6未收到到应答，那么它将重发报文段6，如果客户端处在CLOSED状态就无法进行应答，因此它需要一个“过渡”状态来等待可能的服务器端重发并进行应答。
+- **保证让迟来的TCP报文段有足够的时间被识别并丢弃。**
