@@ -49,23 +49,31 @@
 - 项目背景：该项目是作为 Pivot/Unpivot 项目的子项目进行实施的。在开发 Pivot 功能的过程中，我们注意到了当执行 Pivot 语法的替代语句（即分组聚合）时，若能够利用 FILTER 子句来明确指定聚合条件，查询语句的可读性和功能性都将得到显著提升，并且也符合SQL标准，因此决定支持该功能，以便用户能够更加精确地控制聚合过程中的数据过滤逻辑。
 - 项目周期：2023/5/30 ~ 2023/6/16
 - 项目人员：研发2人（刘军，我），测试2人
-- 项目细节：
+- 项目细节：这个功能的实现除了语法支持的部分以外，其他的改动主要是在执行器的部分，Group By的主要过程是从Table Access/Index Access执行器那里获取数据，然后插入到Hash Instant当中（内部实现叫做Merge Record），Aggregation Filter就是在Merge Record中做的（提取Hash Key以及插入Hash Instant）。
 - 我的分工：
 - 性能要求：
 - 项目难点：工作量大
 
 ```sql
-ITEM  REGION PRICE AMOUNT
------ ------ ----- ------
-apple daegu  25000     30
+-- ITEM  REGION PRICE AMOUNT
+-- ----- ------ ----- ------
+-- apple daegu  25000     30
 
+-- pivot
 SELECT *
-  FROM sales PIVOT (
-  	SUM(price * amount) FOR item IN ('apple' APPLE)
-  );
--- <==>
+  FROM sales
+ PIVOT (
+ 	SUM( price * amount ) FOR item IN ( 'apple' APPLE )
+ );
+-- aggr-where
 SELECT region
-     , SUM(price * amount) FILTER( WHERE item = 'apple' ) AS apple
+     , SUM( price * amount ) AS apple
+  FROM sales
+ WHERE item = 'apple'
+ GROUP BY region;
+-- aggr-filter
+SELECT region
+     , SUM( price * amount ) FILTER( WHERE item = 'apple' ) AS apple
   FROM sales
  GROUP BY region;
 ```
