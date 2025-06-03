@@ -610,7 +610,7 @@ int listen(int sockfd, int backlog);
 
 backlog参数提示内核监听队列的最大长度。监听队列的长度如果超过backlog，服务器将不受理新的客户端连接，客户端将收到`ECONNREFUSED`错误信息。
 
-执行过`listen`调用、处于LISTEN状态的socket称为监听socket，所有处于ESTABLISHED状态的socket则称为连接socket。
+执行过`listen`调用、**处于LISTEN状态的socket称为监听socket**，所有**处于ESTABLISHED状态的socket则称为连接socket**。
 
 ## 5.5 接受连接
 
@@ -769,3 +769,49 @@ int getpeername(int sockfd, struct sockaddr *address,
 ```
 
 ## 5.11 socket选项
+
+专门用来读取和设置socket文件描述符的方法：
+
+```c
+#include <sys/socket.h>
+int getsockopt(int sockfd, int level, 
+               int option_name, void *option_value, 
+               socklen_t * restrict option_len);
+int setsockopt(int sockfd, int level,
+               int option_name, const void *option_value,
+               socklen_t option_len);
+```
+
+level参数指定要操作哪个协议的选项（即属性），如IPv4、IPv6、TCP等。option_name参数指定选项名称，option_value和option_len参数分别是被操作选项的值和长度。
+
+<table>
+<tr><th>level</th><th>option name</th><th>数据类型</th><th>说明</th></tr>
+<tr><th rowspan="14">SOL_SOCKET（socket通用选项）</th>
+    <td>SO_DEBUG</td><td>int</td><td>打开调试信息</td></tr>
+<tr><td>SO_REUSEADDR</td><td>int</td><td>重用本地地址</td></tr>
+<tr><td>SO_TYPE</td><td>int</td><td>获取socket类型</td></tr>
+<tr><td>SO_ERROR</td><td>int</td><td>获取并清除socket错误状态</td></tr>
+<tr><td>SO_DONTROUTE</td><td>int</td><td>不查看路由表，直接将数据发送给本地局域网内的主机，含义和send系统调用的MSG_DONTROUTE标志类似</td></tr>
+<tr><td>SO_RCVBUF</td><td>int</td><td>TCP接收缓冲区大小</td></tr>
+<tr><td>SO_SNDBUF</td><td>int</td><td>TCP发送缓冲区大小</td></tr>
+<tr><td>SO_KEEPALIVE</td><td>int</td><td>发送周期性保活报文以维持连接</td></tr>
+<tr><td>SO_OOBINLINE</td><td>int</td><td>带外数据将留在普通数据的输入队列中，此时不能使用MSG_OOB标志读取带外数据</td></tr>
+<tr><td>SO_LINGER</td><td>linger</td><td>若有数据待发送，则延迟关闭</td></tr>
+<tr><td>SO_RCVLOWAT</td><td>int</td><td>TCP接收缓冲区低水位标记</td></tr>
+<tr><td>SO_SNDLOWAT</td><td>int</td><td>TCP发送缓冲区低水位标记</td></tr>
+<tr><td>SO_RCVTIMEO</td><td>timeval</td><td>接收数据超时</td></tr>
+<tr><td>SO_SNDTIMEO</td><td>timeval</td><td>发送数据超时</td></tr>
+<tr><th rowspan="2">IPPROTO_IP（IPv4选项）</th>
+    <td>IP_TOS</td><td>int</td><td>服务类型</td></tr>
+<tr><td>IP_TTL</td><td>int</td><td>存活时间</td></tr>
+<tr><th rowspan="4">IPPROTO_IPV6（IPv6选项）</th>
+    <td>IPV6_NEXTHOP</td><td>sockaddr_in6</td><td>下一跳IP地址</td></tr>
+<tr><td>IPV6_RECVPKTINFO</td><td>int</td><td>接收分组信息</td></tr>
+<tr><td>IPV6_DONTFRAG</td><td>int</td><td>禁止分片</td></tr>
+<tr><td>IPV6_RECVTCLASS</td><td>int</td><td>接收通信类型</td></tr>
+<tr><th rowspan="2">IPPROTO_TCP（TCP选项）</th>
+    <td>TCP_MAXSEG</td><td>int</td><td>TCP最大报文段大小</td></tr>
+<tr><td>TCP_NODELAY</td><td>int</td><td>禁止Nagle算法</td></tr>
+</table>
+
+需要注意的是，对服务器而言，部分socket选项只有在调用listen系统调用前针对该socket设置才有效。这是因为连接socket（ESTABLISHED状态）只能由`accept`调用返回，而accept从listen监听队列中接受的连接至少已经完成了TCP三次握手的前两个步骤（因为listen监听队列中的连接至少已经进入了SYN_RCVD状态），这说明服务器已经往被接受链接上发送出了TCP同步报文段。担忧的socket选项却应该在TCP同步报文段中设置，如TCP最大报文段选项。对这种情况，Linux给出的解决方案是，对监听socket设置这些socket选项，那么accept返回的连接socket将自动基础这些选项。这些socket选项包括：SO_DEBUG、SO_DONTROUTE、SO_KEEPALIVE、SO_LINGER、SO_OOBINLINE、SO_RCVBUF、SO_RCVLOWAT、SO_SNDBUF、SO_SNDLOWAT、TCP_MAXSEG、TCP_NODELAY。基于同样的理由，客户端在设置这些选项时也应该在调用`connect()`函数之前，因为`connect()`调用成功返回后，TCP三次握手已完成（同步报文已经发送了）。
