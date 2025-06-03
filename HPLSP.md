@@ -455,3 +455,317 @@ $$
 
 ## 4.3 使用tcpdump抓取传输数据包
 
+# 五、Linux网络编程基础API
+
+## 5.1 socket地址API
+
+> 考虑32位机。
+
+### 5.1.1 主机字节序和网络字节序
+
+字节序分为大端字节序（big endian）和小端字节序（little endian）。大端字节序是指一个整数的高位字节（23~31 bit）存储在内存的低地址处，低位字节（0~7 bit）存储在内存的高地址处。小端字节序则是指证书的高位字节存储在内存的高地址处，而低位字节则存储在内存的低地址处。
+
+现代PC大多采用小端字节序，因此小端字节序又被称为主机字节序。不同的字节序的主机在发送数据时必然把数据转化成大端字节序，因此大端字节序也称为网络字节序。需要指出的是，即使是同一台机器上的两个进程（如一个由C语言编写，另一个由JAVA编写）通信，也要考虑字节序的问题（JAVA虚拟机采用大端字节序）。
+
+Linux提供了如下4个函数来完成主机字节序与网络字节序之间的转换
+
+```c
+#include <netinet/in.h>
+unsigned long int htonl(unsigned long int hostlong);
+unsigned short int htons(unsigned short int hostshort);
+unsigned long int ntohl(unsigned long int netlong);
+unsigned short int ntohs(unsigned short int netshort);
+```
+
+### 5.1.2 通用socket地址
+
+socket网络编程接口中表示socket地址的是结构体`sockaddr`，其定义如下：
+
+```c
+#include <bits/socket.h>
+struct sockaddr
+{
+    sa_family_t sa_family; 	// 地址族/协议族类型
+    char sa_data[14];		// 地址值
+};
+```
+
+14字节的`sa_data`无法完全容纳多数协议族的地址值。因此Linux定义了新的通用socket地址结构体：
+
+```c
+#include <bits/socket.h>
+struct sockaddr_storage
+{
+    sa_family_t sa_family;	// 地址族/协议族类型
+    unsigned long int __ss_align;	// 内存对齐值
+    char __ss_padding[128-sizeof(__ss_align)];	// 地址值
+};
+```
+
+### 5.1.3 专用socket地址
+
+上述的socket地址结构体在设置与获取IP地址和端口号时需执行位操作，很麻烦。因此Linux为各个协议族提供了专门的socket地址结构体。
+
+UNIX本地域协议族：
+
+```c
+#include <sys/un.h>
+struct sockaddr_un
+{
+    sa_family_t sin_family; // AF_UNIX/PF_UNIX
+    char sun_path[108];
+};
+```
+
+TCP/IP协议族分别用于IPv4和IPv6的地址结构体：
+
+```c
+struct in_addr
+{
+    u_int32_t s_addr; // IPv4地址
+}
+struct sockaddr_in
+{
+    sa_family_t sin_family; // AF_INET/PF_INET
+    u_int16_t sin_port;
+    struct in_addr sin_addr;
+};
+struct in6_addr
+{
+    unsigned char sa_addr[16]; // IPv6地址
+};
+struct sockaddr_in6
+{
+    sa_family_t sin6_family; // AF_INET6/PF_INET6
+    u_int16_t sin6_port;
+    u_int16_t sin6_flowinfo; // 流信息，应设为0
+    struct in6_addr sin6_addr;
+    u_int32_t sin6_scope_id; // scope ID
+};
+```
+
+所有socket地址结构体（`sockaddr_storage`以及`sockaddr_in`和`sockaddr_in6`）在实际使用时都需要转化为通用socket地址`sockaddr`（强制转换），因为socket编程接口使用的地址参数类型都是`sockaddr`。
+
+### 5.1.4 IP地址转换函数
+
+下面的3个函数可用于用点分十进制字符串表示的IPv4地址和用网络字节序整数表示的IPv4地址之间的转换：
+
+```c
+#include <arpa/inet.h>
+in_addr_t inet_addr(const char *strptr);
+int inet_aton(const char *cp, struct in_addr *inp);
+char *inet_ntoa(struct in_addr in); // 不可重入
+```
+
+下面的函数和上面的函数作用相同，且同时适用于IPv4地址和IPv6地址：
+
+```c
+#include <arpa/inet.h>
+int inet_pton(int af, const char *src, void *dst);
+const char *inet_ntop(int af, const void *src, char *dst, socklen_t cnt);
+```
+
+第二个函数作用与第一个相反，将网络字节序整数表示的地址转换为字符串表示的IP地址，最后一个参数表示目标存储单元的大小：
+
+```c
+#include <netinet/in.h>
+#define INET_ADDRSTRLEN 16
+#define INET6_ADDRSTRLEN 46
+```
+
+## 5.2 创建socket
+
+在Linux下，socket也是文件，即可读、可写、可控制、可关闭的文件描述符。下面的系统调用可以创建socket：
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+int socket(int domain, // 协议族
+           int type, // 服务类型：流/数据报
+           int protocol); // 一般置为0,表示使用默认协议
+```
+
+从Linux内核2.6.17开始，type参数可以接受服务类型与下面两个重要的标志相与的值：`SOCK_NONBLOCK`和`SOCK_CLOEXEC`。
+
+## 5.3 命名socket
+
+创建socket时，制定了协议族，但并未指定使用哪个具体的socket地址。将一个socket与socket地址绑定称为给socket命名。在服务器程序中，通常要命名socket，而客户端程序则通常不需要命名socket，而是使用匿名方式（使用操作系统自动分配的socket地址）。命名socket的系统调用是bind，如下：
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+int bind(int sockfd, 
+         const struct sockaddr *my_addr, 
+         socklen_t addrlen);
+```
+
+## 5.4 监听socket
+
+socket被命名以后，还需要用一个系统调用来创建一个监听队列以存放待处理的客户端连接（换句话说，为客户端socket创建一个指定大小的监听队列）：
+
+```c
+#include <sys/socket.h>
+int listen(int sockfd, int backlog);
+```
+
+backlog参数提示内核监听队列的最大长度。监听队列的长度如果超过backlog，服务器将不受理新的客户端连接，客户端将收到`ECONNREFUSED`错误信息。
+
+执行过`listen`调用、处于LISTEN状态的socket称为监听socket，所有处于ESTABLISHED状态的socket则称为连接socket。
+
+## 5.5 接受连接
+
+下面的系统调用从listen监听队列中接受一个连接：
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+int accept(int sockfd, // 执行过listen的监听socket
+           struct sockaddr *addr, // 被接受连接的远端地址
+           socklen_t *addrlen);
+```
+
+accept成功时返回一个新的连接socket，该socket唯一的标识了被接受的这个连接，服务器可通过读写该socket来与被接受连接对应的客户端通信。
+
+accept只是从监听队列中取出连接，而不论连接出于何种状态，更不关心任何网络状态的变化。
+
+## 5.6 发起连接
+
+服务器使用listen调用来被动接受连接，客户端需要通过如下系统调用来主动与服务器简历连接：
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+int connect(int sockfd, // 客户端socket
+	const struct sockaddr *serv_addr, // 服务器监听地址
+    socklen_t *addrlen);
+```
+
+## 5.7 关闭连接
+
+关闭一个连接实际上就是关闭该连接对应的socket，这可以通过如下关闭普通文件描述符的系统调用来完成：
+
+```c
+#include <unistd.h>
+int close(int fd);
+```
+
+close系统调用并非总是立即关闭一个连接，而是将fd的引用计数减1。只有当fd的引用计数为0时，才真正关闭连接。多进程程序中（不做特殊设置），父子进程都对socket执行close调用才能将连接关闭。
+
+想要立即终止连接（而不是减少引用计数），可以用shutdown系统调用（专为网络编程设计）：
+
+```c
+#include <sys/socket.h>
+int shutdown(int sockfd, int howto);
+```
+
+howto参数决定了shutdown的行为：
+
+| 可选值    | 含义                                                         |
+| --------- | ------------------------------------------------------------ |
+| SHUT_RD   | 关闭sockfd上读的这一半。程序不能再针对sockfd执行读操作，且该socket的接收缓冲区中的数据都被丢弃。 |
+| SHUT_WR   | 关闭sockfd上写的这一半。sockfd的发送缓冲区中的数据会在正在关闭连接前全部发送出去，程序不能再对sockfd执行写操作。在这种情况下，连接处于半关闭状态。 |
+| SHUT_RDWR | 同时关闭sockfd上的读和写。                                   |
+
+## 5.8 数据读写
+
+### 5.8.1 TCP数据读写
+
+对文件的读写操作read和write同样适用于socket。同时socket编程接口提供了几个专用于socket数据读写的系统调用：
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+ssize_t recv(int sockfd, void *buf, size_t len, 
+             int flags);
+ssize_t send(int sockfd, const void *buf, size_t len, 
+             int flags);
+```
+
+flags参数为数据收发提供了额外的控制，一般取0，它可以取下表中的一个或几个的逻辑或。
+
+| 选项名        | 含义                                                         | send | recv |
+| ------------- | ------------------------------------------------------------ | ---- | ---- |
+| MSG_CONFIRM   | 指示数据链路层协议持续监听对方的回应，知道得到答复。仅能用于SOCK_DGRAM/SOCK_RAW类型的socket | Y    | N    |
+| MSG_DONTROUTE | 不查看路由表，直接将数据发送给本地局域网络内的主机。这表示发送者确切地直到目标主机就在本地网络上 | Y    | N    |
+| MSG_DONTWAIT  | 对socket的此次操作将是非阻塞的                               | Y    | Y    |
+| MSG_MORE      | 告诉内核应用程序还有更多数据要发送，内核将超时等待新数据写入TCP发送缓冲区后一并发送。这可以防止TCP发送过多小的报文段，从而提高传输效率 | Y    | N    |
+| MSG_WAITALL   | 读操作仅在读取到指定数量的字节后才返回                       | N    | Y    |
+| MSG_PEEK      | 窥探读缓存中的数据，此次读操作不会导致这些数据被清除         | N    | Y    |
+| MSG_OOB       | 发送或接收紧急数据                                           | Y    | Y    |
+| MSG_NOSIGNAL  | 往读端关闭的管道或者socket连接中写数据时不引发SIGPIPE信号    | Y    | N    |
+
+flags参数只对send和recv的当前调用生效，而通过setsockopt系统调用可以永久性地修改socket地某些属性。
+
+### 5.8.2 UDP数据读写
+
+socket编程接口中用于UDP数据报读写的系统调用时：
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+ssize_t recvfrom(int sockfd, void *buf, size_t len, 
+             	 int flags, struct sockaddr *src_addr,
+                 socklen_t *addrlen);
+ssize_t sendto(int sockfd, const void *buf, size_t len, 
+               int flags, const struct sockaddr *dest_addr,
+               socklen_t addrlen);
+```
+
+因为UDP通信没有连接的概念，所以每次读写数据都需要发送端和目标端的socket地址。flags参数的含义与前面介绍的相同。其实这两个系统调用也能用于面向连接（STREAM）的socket的数据读写，只需要把最后两个参数都设置为NULL。
+
+### 5.8.3 通用数据读写函数
+
+socket编程接口还提供了一堆通用的数据读写系统调用。它们既可以用于TCP流数据，也能用于UDP数据报：
+
+```c
+#include <sys/socket.h>
+ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags);
+ssize_t sendmsg(int sockfd, struct msghdr *msg, int flags);
+```
+
+msg参数是msghdr结构体类型的指针：
+
+```c
+struct msghdr
+{
+    void *msg_name; // socket地址
+    socklen_t msg_namelen;// socket地址长度
+    struct iovec *msg_iov; // 分散的内存块
+    int msg_iovlen; // 分散内存块的数量
+    void *msg_control; // 指向辅助数据的起始位置
+    socklen_t msg_controllen; // 辅助数据的大小
+    int msg_flags; // 复制函数中的flags参数并在调用过程中更新
+};
+struct iovec
+{
+    void *iov_base; // 内存的起始地址
+    size_t iov_len; // 这块内存的长度
+};
+```
+
+msg_name成员指向一个socket地址结构变量。它指定通信对方的socket地址。对于面向连接的TCP协议，该成员没有意义，必须被设置为NULL。msg_flags成员无需设定，它会复制recvmsg/sendmsg的flags参数的内容以影响数据读写过程。recvmsg/sendmsg的flags参数以及返回值的含义与send/recv的flags参数及返回值相同。
+
+## 5.9 带外数据
+
+实际应用中无法预期带外数据何时到来，但是内核由两种通知应用程序带外数据到来的方式：I/O复用产生的异常事件和SIGURG信号。除此之外，程序还需要直到带外数据在数据流中的具体位置，才能准确接收。这可以通过sockatmark系统调用实现：
+
+```c
+#include <sys/socket.h>
+int sockatmark(int sockfd);
+```
+
+sockatmark判断sockfd是否处于带外数据，即下个被读取的数据是否是带外数据。若是，sockatmark返回1，此时可以用带MSG_OOB标志的recv调用接收带外数据。否则，sockatmark返回0。
+
+## 5.10 地址信息函数
+
+获取一个连接socket的本端socket地址和远端socket地址有以下两个接口：
+
+```c
+#include <sys/socket.h>
+int getsockname(int sockfd, struct sockaddr *address, 
+                socklen_t *address_len); // 本端
+int getpeername(int sockfd, struct sockaddr *address, 
+                socklen_t *address_len); // 远端
+```
+
+## 5.11 socket选项
