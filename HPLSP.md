@@ -331,7 +331,7 @@ TCP连接的任意一端再任一时刻都处于某种状态，当前状态可�
 
 ### 3.4.2 TIME_WAIT状态
 
-客户端在首都奥服务器的结束报文段后，并未直接进入CLOSED状态，而是转移到TIME_WAIT状态。在此状态下，客户端要等待一段长为2MSL（Maximum Segment Life，报文最大生存时间）的时间，才能完全关闭。MSL再标准文档RFC 1122的建议值位2 min。
+客户端在收到服务器的结束报文段后，并未直接进入CLOSED状态，而是转移到TIME_WAIT状态。在此状态下，客户端要等待一段长为2MSL（Maximum Segment Life，报文最大生存时间）的时间，才能完全关闭。MSL在标准文档RFC 1122的建议值为2 min。
 
 TIME_WAIT状态存在的原因有两点：
 
@@ -815,3 +815,19 @@ level参数指定要操作哪个协议的选项（即属性），如IPv4、IPv6�
 </table>
 
 需要注意的是，对服务器而言，部分socket选项只有在调用listen系统调用前针对该socket设置才有效。这是因为连接socket（ESTABLISHED状态）只能由`accept`调用返回，而accept从listen监听队列中接受的连接至少已经完成了TCP三次握手的前两个步骤（因为listen监听队列中的连接至少已经进入了SYN_RCVD状态），这说明服务器已经往被接受链接上发送出了TCP同步报文段。担忧的socket选项却应该在TCP同步报文段中设置，如TCP最大报文段选项。对这种情况，Linux给出的解决方案是，对监听socket设置这些socket选项，那么accept返回的连接socket将自动基础这些选项。这些socket选项包括：SO_DEBUG、SO_DONTROUTE、SO_KEEPALIVE、SO_LINGER、SO_OOBINLINE、SO_RCVBUF、SO_RCVLOWAT、SO_SNDBUF、SO_SNDLOWAT、TCP_MAXSEG、TCP_NODELAY。基于同样的理由，客户端在设置这些选项时也应该在调用`connect()`函数之前，因为`connect()`调用成功返回后，TCP三次握手已完成（同步报文已经发送了）。
+
+### 5.11.1 SO_REUSEADDR选项
+
+服务器可通过设置SO_REUSEADDR选项来强制使用被处在TIME_WAIT状态的连接所占用的socket地址（即立即重用该地址）。
+
+```c
+int reuse = 1;
+setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, 
+           &reuse, sizeof(reuse));
+```
+
+此外也可通过修改内核参数`/proc/sys/net/ipv4/tcp_tw_recycle`来快速回收被关闭的socket，使得TCP连接根本就不进入TIME_WAIT状态，进而允许应用程序立即重用本地的socket地址。
+
+### 5.11.2 SO_RCVBUF和SO_SNDBUF选项
+
+SO_RCVBUF和SO_SNDBUF选项分别表示TCP接收缓冲区和发送缓冲区的大小。在设置这两个选项时，系统会自动将设置的值加倍，并且不小于某个最小值。TCP接收缓冲区的最小值是256字节，而发送缓冲区的最小值是2048字节（不同系统可能有不同的默认最小值）。
