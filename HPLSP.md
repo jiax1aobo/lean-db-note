@@ -831,3 +831,33 @@ setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
 ### 5.11.2 SO_RCVBUF和SO_SNDBUF选项
 
 SO_RCVBUF和SO_SNDBUF选项分别表示TCP接收缓冲区和发送缓冲区的大小。在设置这两个选项时，系统会自动将设置的值加倍，并且不小于某个最小值。TCP接收缓冲区的最小值是256字节，而发送缓冲区的最小值是2048字节（不同系统可能有不同的默认最小值）。
+
+### 5.11.3 SO_RCVLOWAT和SO_SNDLOWAT选项
+
+SO_RCVLOWAT和SO_SNDLOWAT选项分别表示TCP接收缓冲区和发送缓冲区的低水位标记。当TCP接收缓冲区中可读数据的总数大于其低水位标记时，I/O复用系统调用将通知应用程序可以从对应的socket上读取数据；当TCP的发送缓冲区中的空闲空间（可以写入数据的空间）大于其低水位标记时，I/O复用系统调用将通知应用程序可以往对应的socket上写入数据。默认情况下，TCP接收缓冲区和发送缓冲区的低水位标记均为1字节。
+
+### 5.11.4 SO_LINGER选项
+
+SO_LINGER选项用于控制close系统调用再关闭TCP连接时的行为。默认情况下，使用close系统调用关闭一个socket时，close将立即返回，TCP模块负责把该socket对应的TCP发送缓冲区中残留的数据发送给对方。
+
+该选项的数据类型和不同取值情况如下：
+
+```c
+#include <sys/socket.h>
+struct linger
+{
+    int l_onoff;  // 开启(非0)或关闭(0)该选项
+    int l_linger; // 滞留时间
+};
+```
+
+不同取值的情况：
+
+<table>
+<tr><th>l_onoff</th><th>l_linger</th><th>说明</th></tr>
+<tr><td>0</td><td>/</td><td>SO_LINGER选项无效，close用默认行为关闭socket</td></tr>
+<tr><td rowspan="2">不为0</td><td>0</td><td>close系统调用立即返回，TCP模块将丢弃被关闭的socket的发送缓冲区中残留数据</td></tr>
+<tr><td rowspan="2">大于0</td><td>socket是阻塞的：close将等待一段长为l_linger的时间，直到TCP模块发送完所有残留数据并得到对方的确认，如果这段时间内TCP模块没有发送完残留数据并得到对方确认，那么close将返回-1，并设置errno为EWOULDBLOCK。若socket是非阻塞的，close将立即返回，此时需要根据其返回值和errno来判断残留数据是否发送完毕。</td></tr>
+</table>
+
+5.12 网络信息API
